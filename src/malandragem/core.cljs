@@ -20,35 +20,36 @@
   (get (:levels game) (:level (:state game))))
 
 (defn data [& kvs]
-  (reagent/atom
-   (into default-data (map vec) (partition 2 kvs))))
+  (reagent/atom (into default-data (map vec) (partition 2 kvs))))
 
 (defn transform-tile [default-style [t properties] & other-styles]
   (let [styles (into [default-style (:style properties)]
                      other-styles)]
-    (println [:div (assoc properties :style (apply merge styles))])
     [:div (assoc properties :style (apply merge styles))]))
 
 (defn tile-location-style [tile-size [x y]]
   {:left (str (* x tile-size) "px")
    :top (str (* y tile-size) "px")})
 
-(defn draw-tile [game coord]
-  (let [{:keys [tiles]} (get-level game)
-        tile-size-style (-> game ::impl ::tile-size-style)
+(defn draw-tile [game coord draw-fn]
+  (let [tile-size-style (-> game ::impl ::tile-size-style)
         tile-size (-> game ::impl ::size)
-        draw-fn (get tiles coord (:default tiles))
         tile-location (tile-location-style tile-size coord)]
     (transform-tile default-tile-style
                     (draw-fn game coord)
                     tile-size-style
                     tile-location)))
 
-(defn draw-entity [game level entity]
-  )
+(defn draw-floor [game coord]
+  (let [{:keys [tiles]} (get-level game)
+        draw-fn (get tiles coord (:default tiles))]
+    (draw-tile game coord draw-fn)))
 
 (defn draw-entities [game level]
-  [:div])
+  (let [heiarchy (:entity-heiarchy game)
+        level-entities (:entities level)
+        entities (into [] (mapcat (partial get level-entities)) heiarchy)]
+    (into [:div] (map #(draw-tile game (first %) (second %))) entities)))
 
 (defn get-coords [x y]
   (for [x (range x)
@@ -90,7 +91,7 @@
     (->
      (build-default game)
      (into
-      (map (partial draw-tile game))
+      (map (partial draw-floor game))
       (get-coords x y))
      (into (draw-entities game level)))))
 

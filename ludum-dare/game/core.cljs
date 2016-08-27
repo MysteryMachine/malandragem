@@ -12,9 +12,18 @@
    {:style
     {:background-color (checkerboard (rem (+ x y) 2))}}])
 
+(defn draw-skull [game [x y]]
+  [:skull
+   {:style
+    {:background-image "url(img/poison_skull.gif)"
+     :background-repeat "no-repeat"
+     :background-size "cover"}}])
+
 (def levels
   {0 {:dimensions [100 100]
-      :entities {}
+      :entities
+      {:character
+       {[2 3] draw-skull}}
       :tiles {:default default-tile}}})
 
 (def state
