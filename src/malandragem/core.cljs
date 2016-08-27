@@ -3,6 +3,8 @@
             [reagent.core :as reagent])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
 
+(defonce -state (atom {}))
+
 (def default-container-style
   {:padding "0"
    :margin "0"
@@ -97,6 +99,12 @@
       (get-coords xi yi dx dy))
      (into (draw-entities game level)))))
 
+(defn clear-state! []
+  (doseq [[k v] @-state]
+    (cond
+      (= k :interval) (js/window.clearInterval v)
+      :default (js/window.removeEventListener k v))))
+
 (defn resize-event [game-atom]
   (fn []
     (swap!
@@ -107,10 +115,16 @@
 (defn register-state! [game-atom body]
   (let [resize-fn (resize-event game-atom)]
     (resize-fn)
-    (js/window.addEventListener "resize" resize-fn)))
+    (js/window.addEventListener "resize" resize-fn)
+    (swap! -state #(assoc % "resize" resize-fn))))
 
-(defn wander [game-fn game-atom body]
+(defn wander [game-fn game-atom body
+              {:keys [time]}]
+  (clear-state!)
   (register-state! game-atom body)
+  (when time
+    (let [event (js/window.setInterval (:fn time) (/ 1000 (:fps time)))]
+      (swap! -state #(assoc % :interval event))))
   (reagent/render-component [game-fn] body))
 
 (defn game-dims [state] (-> state ::impl ::box-size))
@@ -118,3 +132,20 @@
 (defn remaining-space [state] (-> state ::impl ::remaining-space))
 
 (defn px [s] (str s "px"))
+
+(defn sprite [url]
+  [:sprite
+   {:style
+    {:background-image (str "url(" url ")")
+     :background-repeat "no-repeat"
+     :background-size "cover"}}])
+
+(defn colored-tile
+  ([r g b]
+   [:tile
+    {:style
+     {:background-color (str "#" r g b)}}])
+  ([r1 r2 g1 g2 b1 b2]
+   [:tile
+    {:style
+     {:background-color (str "#" r1 r2 g1 g2 b1 b2)}}]))
