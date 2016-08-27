@@ -29,10 +29,10 @@
 (def state
   (rl/data
    :levels levels
-   :state {:level 0}
+   :state {:level 0 :viewport [1 1]}
    :entity-heiarchy [:item :character]
-   :settings {:tile-dimensions [8 8]
-              :screen-dimensions [0.8 0.9]}))
+   :settings {:tile-dimensions [14 8]
+              :screen-dimensions [0.8 0.8]}))
 
 (defn game []
   (let [game @state
@@ -55,7 +55,7 @@
                    :position "absolute"
                    :top (px y)
                    :height (px d)
-                   :width (px y)}}
+                   :width (px x)}}
      [:p "> The monster wants to fight!"]
      [:p "> But maybe smooch too, wow"]]]))
 

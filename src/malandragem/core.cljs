@@ -27,18 +27,19 @@
                      other-styles)]
     [:div (assoc properties :style (apply merge styles))]))
 
-(defn tile-location-style [tile-size [x y]]
-  {:left (str (* x tile-size) "px")
-   :top (str (* y tile-size) "px")})
+(defn tile-location-style [tile-size [x y] [vx vy]]
+  {:left (str (* (- x vx) tile-size) "px")
+   :top (str (* (- y vx) tile-size) "px")})
 
 (defn draw-tile [game coord draw-fn]
   (let [tile-size-style (-> game ::impl ::tile-size-style)
         tile-size (-> game ::impl ::size)
-        tile-location (tile-location-style tile-size coord)]
+        viewport (-> game :state :viewport)
+        tile-loc-st (tile-location-style tile-size coord viewport)]
     (transform-tile default-tile-style
                     (draw-fn game coord)
                     tile-size-style
-                    tile-location)))
+                    tile-loc-st)))
 
 (defn draw-floor [game coord]
   (let [{:keys [tiles]} (get-level game)
@@ -51,9 +52,9 @@
         entities (into [] (mapcat (partial get level-entities)) heiarchy)]
     (into [:div] (map #(draw-tile game (first %) (second %))) entities)))
 
-(defn get-coords [x y]
-  (for [x (range x)
-        y (range y)]
+(defn get-coords [xi yi dx dy]
+  (for [x (range xi (+ xi dx))
+        y (range yi (+ yi dy))]
     [x y]))
 
 (defn resize-state [settings]
@@ -87,12 +88,13 @@
 (defn render [game]
   (let [settings (:settings game)
         level (get-level game)
-        [x y] (:tile-dimensions settings)]
+        [dx dy] (:tile-dimensions settings)
+        [xi yi] (-> game :state :viewport)]
     (->
      (build-default game)
      (into
       (map (partial draw-floor game))
-      (get-coords x y))
+      (get-coords xi yi dx dy))
      (into (draw-entities game level)))))
 
 (defn resize-event [game-atom]
