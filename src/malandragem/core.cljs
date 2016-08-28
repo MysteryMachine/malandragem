@@ -192,8 +192,13 @@
   ([outer-tile inner-tile wall-width [xi yi] [dx dy] level]
    (blit-room outer-tile inner-tile wall-width [xi yi] [dx dy] false level)))
 
-(defn +tile [tile x y level] (assoc-in level [:tiles [x y]] tile))
-(defn -tile [x y level] (update level :tiles #(dissoc % [x y] level)))
+(defn +tile [tile [x y] level] (assoc-in level [:tiles [x y]] tile))
+(defn -tile [[x y] level] (update level :tiles #(dissoc % [x y] level)))
+
+(defn +entity [tag [x y] entity level]
+  (assoc-in level [:entities tag [x y]] entity))
+(defn -entity [tag [x y] level]
+  (update-in level [:entities tag] #(dissoc % [x y] level)))
 
 (defn take-all! [keypress-chan]
   (loop [events []]
@@ -207,6 +212,8 @@
    (some
     (fn [[k v]] (:solid (get v coord)))
     tiles)))
+
+(defn mouse-pos [game] (-> game :state :mouse))
 
 (defn update-viewport [game [x y]]
   (let [[tx ty] (-> game :settings :tile-dimensions)
@@ -223,13 +230,16 @@
          #(-> % (dissoc coord) (assoc new-coord new-entity)))]
    (assoc-in game path updated-entities)))
 
+(defn level-path [game]
+  [:levels (-> game :state :level)])
+
 (defn update-entity
   ([game [tag coord] new-coord new-entity &
     {:keys [solid-pass? player?]}]
-   (let [level-path [:levels (-> game :state :level)]
-         path (conj level-path :entities)
+   (let [level-path* (level-path game)
+         path (conj level-path* :entities)
          entities (get-in game path)
-         tiles (:tiles (get-in game level-path))
+         tiles (:tiles (get-in game level-path*))
          passed? (or solid-pass?
                      (not (any-obstructions? entities tiles new-coord)))
          game* (if passed?
@@ -238,3 +248,33 @@
      (if (and passed? player?)
        (update-viewport game* new-coord)
        game*))))
+
+(defn near?
+  ([game coords filter-cond]
+   (near? game coords filter-cond))
+  ([game [x y] i filter-cond]
+   (let [level (get-level game)
+         tiles (:tiles level)
+         entities (:entities level)]
+     (or
+      (some
+       filter-cond
+       (for [x (range (- i x) (+ i x))
+             y (range (- i y) (+ i y))]
+         (get tiles [x y])))
+      (some
+       filter-cond
+       (for [[_ v] entities
+             x (range (- i x) (+ i x))
+             y (range (- i y) (+ i y))]
+         (get v [x y])))))))
+
+(defn init-report [state]
+  (fn [coord s]
+   (fn []
+     (swap!
+      state
+      #(->
+        %
+        (assoc-in [:state :report] s) 
+        (assoc-in [:state :mouse] coord))))))

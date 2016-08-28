@@ -2,67 +2,157 @@
   (:require [malandragem.core :as rl :refer [px]]))
 
 (enable-console-print!)
-(declare state)
-
-(defn report [s]
-  (fn [] (swap! state #(assoc-in % [:state :report] s))))
+(declare state machines report)
 
 (def color
-  {:darkness "#080403"})
+  {:darkness "#080403"
+   :silver "#313235"
+   :red "#522"
+   :green "#252"})
+
+(def no-purchase-text "Can't place purchase here")
+
+(defn purchasing? [game] (= :purchase(-> game ::state ::menu)))
+
+(defn cancel-purchase [game]
+  (assoc-in game [::state ::menu] nil))
+
+(defn complete-purchase []
+  (swap!
+   state
+   (fn [game]
+     (when (not= (-> game :state :report) no-purchase-text)
+       (let [[machine ore water coal] (-> game ::state ::purchase)
+             ore* (-> game :resources :ore)
+             water* (-> game :resources :water)
+             coal* (-> game :resources :coal)]
+        (->
+          game
+          (update-in
+           (rl/level-path game)
+           (partial rl/+entity
+                    :machine
+                    (get machines machine)
+                    (rl/mouse-pos game)))
+          (assoc
+           :resources
+           {:ore  (- ore* ore)
+            :water (- water* water)
+            :coal (- coal* coal)})
+          cancel-purchase))))))
+
+(defn cancel-purchase! []
+  (cancel-purchase @state))
+
+(defn game-tile
+  [desc tcolor & {:keys [solid] :as props}]
+  (assoc
+   props :draw
+   (let [hover-color (if solid (:red color) (:green color))
+         place-desc (if solid
+                      no-purchase-text
+                      "Click to place your")]
+     (fn [game [x y :as coords]]
+       (let [hover? (= coords (rl/mouse-pos game))
+             p? (purchasing? game)
+             p-hov? (and hover? p?)]
+         (rl/with-props
+           (rl/colored-tile (if p-hov? hover-color tcolor))
+           :on-click (when p? complete-purchase)
+           :on-mouse-over
+           #((report
+              coords
+              (if (purchasing? @state) place-desc desc)))))))))
 
 (def default-tile
-  {:draw
-   (fn [game [x y]]
-     (rl/colored-tile (:darkness color)))
-   :solid true})
+  (game-tile ""
+   (:darkness color)
+   :solid true
+   :name :default))
 
 (def player
-  {:draw
-   (fn [game [x y]]
-     (rl/with-props
-       (rl/colored-tile "#271")
-       :on-mouse-over (report "The starcrossed lover. You!")))
-   :solid true})
+  (game-tile
+   "The starcrossed lover. You!"
+   "#271"
+   :solid true
+   :name :player))
 
 (def steel-wall
-  {:draw
-   (fn [game [x y]]
-     (rl/with-props
-       (rl/colored-tile "#222")
-       :on-mouse-over (report "An ancient, steel wall.")))
-   :solid true})
+  (game-tile
+   "An ancient, steel wall."
+   "#222"
+   :solid true
+   :name :steel-wall))
 
 (def steel-floor
-  {:draw
-   (fn [game [x y]]
-     (rl/with-props
-       (rl/colored-tile "#393939")
-       :on-mouse-over (report "An ancient, steel floor.")))
-   :solid false})
+  (game-tile
+   "An ancient, steel floor."
+   "#393939"
+   :solid false
+   :name :steel-floor))
 
 (def water
-  {:draw
-   (fn [game [x y]]
-     (rl/with-props
-       (rl/colored-tile "#226")
-       :on-mouse-over (report "Murky water.")))
-   :solid true})
+  (game-tile
+   "Murky water."
+   "#226"
+   :solid true
+   :name :water))
 
 (def light-machine
-  {:draw
-   (fn [game [x y]]
-     (rl/with-props
-       (rl/colored-tile "#551")
-       :on-mouse-over (report "The light bending machine of old.")))
-   :solid true})
+  (game-tile
+   "The light bending machine of old."
+   "#551"
+   :solid true
+   :name :light-machine))
 
 (def console
-  {:draw
-   (fn [game [x y]]
-     (rl/with-props
-       (rl/colored-tile "#383235")
-       :on-mouse-over (report "The light bending machine of old.")))
-   :solid true})
+  (game-tile
+   "The light bending machine of old."
+   "#383235"
+   :solid true
+   :name :console))
+
+(def coal-machine
+  (game-tile
+   "A machine that converts carbon to coal."
+   "#745"
+   :solid false
+   :name :coal-machine))
+
+(def drill-machine
+  (game-tile
+   "A machine that drills deeply with lasers."
+   "#888"
+   :solid false
+   :name :drill-machine))
+
+(def dehydrator
+  (game-tile
+   "Sucks out oxygen from the air."
+   "#494"
+   :solid false
+   :name :dehydrator))
+
+(def turret
+  (game-tile
+   "A machine used for killing."
+   "#F00"
+   :solid false
+   :name :turret))
+
+(def human-trans-machine
+  (game-tile
+   "You've done it now."
+   "#000"
+   :solid false
+   :name :human-trans-machine))
+
+(def machines
+  {"Coalescer" coal-machine
+   "Drill" drill-machine
+   "Dehydrator" dehydrator
+   "Light Turret" turret
+   "Human Transmutation Machine" human-trans-machine})
 
 (defn => [& s]
   (let [[style s*] (if (map? (first s))
@@ -107,7 +197,8 @@
   (->>
    {:entities
     {:character
-     {[17 22] player}}
+     {[17 22] player}
+     :machine {}}
     :tiles {:default default-tile}}
    (entrance-hallway)
    (main-chambers)
@@ -119,20 +210,24 @@
 (def state
   (rl/data
    :levels levels
-   ::state {::menu :game ::index 0}
+   ::state {::mode :game ::index 0 ::menu :default}
    :state {:level 0 :viewport [0 14] :debug true}
    :text [(=> "The heavy iron door locks in once opened, leaving the facility "
               "exposed to the elements. You hear marching from far away. "
               "You must make haste, and prepare your defenses. Find ore "
               "and feed it to the light machine.")]
-   :entity-heiarchy [:item :character]
+   :entity-heiarchy [::machine :character]
+   :resources {:water 10 :coal 10 :ore 10}
    :settings {:tile-dimensions [35 17]
               :screen-dimensions [0.85 0.9]}))
+
+(def report (rl/init-report state))
 
 (def default-text
   {:color "white"
    :font-family "Consolas"
-   :user-select "none"})
+   :user-select "none"
+   :line-height 1})
 
 (defn menu-style [x y r d]
   (merge
@@ -141,7 +236,7 @@
     :height (px (+ y d))
     :width (px r)
     :top (px 0)
-    :overflow "hiden"
+    :overflow "hidden"
     :position "absolute"
     :left (px x)}))
 
@@ -163,11 +258,115 @@
 (defn inner-menu [& forms]
   (into [:div {:style inner-menu-style}] forms))
 
-(defmulti render-menu ::menu :default :default)
+(defn purchase [& [name ore water coal :as args]]
+  (swap! state
+         #(->
+           %
+           (assoc-in [::state ::menu] :purchase)
+           (assoc-in [::state ::purchase] args)
+           (assoc-in [:state :report] nil))))
+
+(defn build-button [game name desc [ore water coal]]
+  (let [ore* (-> game :resources :ore)
+        water* (-> game :resources :water)
+        coal* (-> game :resources :coal)
+        enough? (and (> ore* ore)
+                     (> water* water)
+                     (> coal* coal))]
+    [:div {:style {:border-style "solid"
+                   :border-width "1px"
+                   :border-color (if enough? "white" "grey")
+                   :color (if enough? "white" "grey")
+                   :padding "10px"
+                   :margin-bottom "10px"
+                   :cursor (when enough? "pointer")}
+           :on-click (when enough? #(purchase name ore water coal))
+           :on-mouse-over
+           (report
+            [-1 -1]
+            [:div
+             [:div {:style {:padding-bottom "10px"}}
+              desc]
+             [:div {:style {:text-decoration "underline"
+                            :padding-bottom "10px"}}
+              "Cost:"]
+             [:pre "Ore   :  " ore]
+             [:pre "Water :  " water]
+             [:pre "Coal  :  " coal]])}
+     [:div {:style {:cursor (when enough? "pointer")}} name]]))
+
+(defn report-menu [game right-space]
+  [:div {:style {:position "fixed" :bottom "20px"
+                 :width (px (- right-space 40))
+                 :height "140px"
+                 :border-style "solid"
+                 :border-width "1px"
+                 :border-color "white"}}
+   [:div {:style {:padding "10px"}}
+    (-> game :state :report)]])
+
+(defn resource-panel [game]
+  [:div
+   [:div {:style {:text-decoration "underline"
+                  :padding-bottom "20px"
+                  :line-height "1"}}
+    "Resources"]
+   [:div {:style {:margin-bottom "20px"
+                  :padding "10px"
+                  :border-style "solid"
+                  :border-width "1px"
+                  :border-color "white"}}
+    [:pre "Ore   :  " (-> game :resources :ore)]
+    [:pre "Water :  " (-> game :resources :water)]
+    [:pre "Coal  :  " (-> game :resources :coal)]]])
+
+(defmulti render-menu #(-> %1 ::state ::menu) :default :default)
 (defmethod render-menu :default
-  [game]
+  [game right-space]
   (inner-menu
-   (-> game :state :report)))
+   (report-menu game right-space)
+   (resource-panel game)
+   [:div {:style {:padding-bottom "20px"}}
+    [:div {:style {:text-decoration "underline"
+                   :padding-bottom "20px"
+                   :line-height "1"}}
+     "Build"]
+    (build-button
+     game
+     "Drill"
+     "Harvests 1 ore every 10 seconds."
+     [3 0 1])
+    (build-button
+     game
+     "Dehydrator"
+     "Harvests 1 water every 10 seconds."
+     [3 0 1])
+    (build-button
+     game
+     "Coalescer "
+     "Harvests 1 coal every 10 seconds."
+     [3 0 1])
+    (build-button
+     game
+     "Light Turret"
+     "A horrible machine. Used to murder others."
+     [12 5 10])
+    (build-button
+     game
+     "Human Transmutation Machine"
+     "A dark, forbidden thing."
+     [231 231 231])]))
+
+(defmethod render-menu :purchase [game _]
+  (let [report-text (-> game :state :report)]
+   [:div
+    {:style {:padding "20px"}}
+    (resource-panel game)
+    (if report-text
+     (str
+       report-text " "
+       (if (= report-text no-purchase-text) ""
+           (-> game ::state ::purchase first))))]))
 
 (defn render-textbox [game]
   (into [:div
@@ -257,12 +456,12 @@
         [r d] (rl/remaining-space game)]
    [:div
     [:div {:style game-box-style} (rl/render game)]
-    [:div {:style (menu-style x y r d)} (render-menu game)]
+    [:div {:style (menu-style x y r d)} (render-menu game r)]
     [:div {:style (text-box-style x y r d)} (render-textbox game)]]))
 
 (defn app []
   (let [game @state]
-    (case (-> game ::state ::menu)
+    (case (-> game ::state ::mode)
       :init (render-init game)
       :game (render-game game))))
 
@@ -294,6 +493,11 @@
 (defmethod handle-input "ArrowUp"
   [game event]
   (move-player game 0 -1))
+(defmethod handle-input "Escape"
+  [game event]
+  (if (purchasing? game)
+    (cancel-purchase game)
+    game))
 
 (defn handle-inputs [game events]
   (loop [game game

@@ -1,3 +1,4 @@
+
 /* some style */
 
 body{
@@ -12,4 +13,8 @@ body{
 
 div:hover, p:hover{
     cursor:default;
+}
+
+pre{
+    margin: 0;
 }
