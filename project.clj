@@ -45,10 +45,10 @@
                ;; production. You can build this with:
                ;; lein cljsbuild once min
                {:id "min"
-                :source-paths ["src"]
-                :compiler {:output-to "resources/public/js/compiled/malandragem.js"
-                           :main malandragem.core
-                           :optimizations :advanced
+                :source-paths ["src"  "ludum-dare" ]
+                :compiler {:output-to "resources/public/js/compiled/min.js"
+                           :main game.core
+                           :optimizations :whitespace
                            :pretty-print false}}]}
 
   :figwheel {:css-dirs ["resources/public/css"] ;; watch and update CSS

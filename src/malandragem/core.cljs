@@ -12,7 +12,8 @@
 
 (def default-data
   {:levels {}
-   :state {:level ::none}})
+   :state {:level ::none}
+   :time 0})
 
 (def default-tile-style
   {:background-color "#FFFFFF"
@@ -38,7 +39,7 @@
         tile-size-style (-> game ::impl ::tile-size-style)
         tile-size (-> game ::impl ::size)
         viewport (-> game :state :viewport)
-        tile-loc-st (tile-location-style tile-size coord viewport)] 
+        tile-loc-st (tile-location-style tile-size coord viewport)]
     (transform-tile default-tile-style
                     (draw-fn game coord)
                     tile-size-style
@@ -123,23 +124,23 @@
   (fn [k]
     (put! keypress-chan (.-key k))))
 
-(defn wander [game-fn game-atom body
-              {:keys [time]}]
-  (clear-state!)
-  (register-state! game-atom body)
-  (when time
-    (let [keypresses (chan)
-          keypress-fn (register-keypresses keypresses)
-          _ (js/window.addEventListener "keydown" keypress-fn)
-          event (js/window.setInterval
-                 (fn []
-                   (let [old-state @game-atom
-                         new-state ((:fn time) old-state keypresses)]
-                    (reset! game-atom new-state)))
-                 (/ 1000 (:fps time)))]
-      (swap! -state #(assoc % "keydown" keypress-fn))
-      (swap! -state #(assoc % :interval event))))
-  (reagent/render-component [game-fn] body))
+(defn wander [game-fn game-atom body]
+  (let [time (-> @game-atom :settings :time)]
+    (clear-state!)
+    (register-state! game-atom body)
+    (when time
+      (let [keypresses (chan)
+            keypress-fn (register-keypresses keypresses)
+            _ (js/window.addEventListener "keydown" keypress-fn)
+            event (js/window.setInterval
+                   (fn []
+                     (let [old-state @game-atom
+                           new-state ((:fn time) old-state keypresses)]
+                       (reset! game-atom new-state)))
+                   (/ 1000 (:fps time)))]
+        (swap! -state #(assoc % "keydown" keypress-fn))
+       (swap! -state #(assoc % :interval event))))
+    (reagent/render-component [game-fn] body)))
 
 (defn game-dims [state] (-> state ::impl ::box-size))
 
@@ -208,9 +209,9 @@
 
 (defn any-obstructions? [entities tiles coord]
   (or
-   (:solid (get tiles coord))
+   (true? (:solid (get tiles coord)))
    (some
-    (fn [[k v]] (:solid (get v coord)))
+    (fn [[k v]] (true? (:solid (get v coord))))
     tiles)))
 
 (defn mouse-pos [game] (-> game :state :mouse))
@@ -233,6 +234,10 @@
 (defn level-path [game]
   [:levels (-> game :state :level)])
 
+(defn entities-of-type [game etype]
+  (when etype
+    (-> game get-level :entities etype)))
+
 (defn update-entity
   ([game [tag coord] new-coord new-entity &
     {:keys [solid-pass? player?]}]
@@ -250,24 +255,30 @@
        game*))))
 
 (defn near?
+  ([[xi yi] [xf yf] i]
+   (let [x* (- xi xf)
+         y* (- yi yf)
+         x (* x* x*)
+         y (* y* y*)]
+    (<= (+ x y) (* i i))))
+  ([coord1 coord2]
+   (near? coord1 coord2 1)))
+
+(defn near-filter
   ([game coords filter-cond]
-   (near? game coords filter-cond))
+   (near-filter game coords 1 filter-cond))
   ([game [x y] i filter-cond]
    (let [level (get-level game)
-         tiles (:tiles level)
          entities (:entities level)]
-     (or
-      (some
-       filter-cond
-       (for [x (range (- i x) (+ i x))
-             y (range (- i y) (+ i y))]
-         (get tiles [x y])))
-      (some
-       filter-cond
-       (for [[_ v] entities
-             x (range (- i x) (+ i x))
-             y (range (- i y) (+ i y))]
-         (get v [x y])))))))
+     (for [[_ v] entities
+           x (range (- x i) (+ i x))
+           y (range (- y i) (+ i y))
+           :let [coord [x y]
+                 e (get v coord)
+                 ret [coord e]]
+           :when (not (nil? e))
+           :when (filter-cond coord e)]
+       ret))))
 
 (defn init-report [state]
   (fn [coord s]
@@ -276,5 +287,7 @@
       state
       #(->
         %
-        (assoc-in [:state :report] s) 
+        (assoc-in [:state :report] s)
         (assoc-in [:state :mouse] coord))))))
+
+(defn tick [game] (update game :time inc))
