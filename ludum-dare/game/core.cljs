@@ -34,21 +34,21 @@
         [[(+ x dx) (+ y dy)] knight]))))
 
 (def spawn-schedule
-  (into #{}
-        (concat
-         (range 30 45 5)
-         (range 60 80 5) 
-         (range 90 115 5)
-         (range 120 135 4)
-         (range 150 170 4)
-         (range 180 210 4)
-         (range 210 225 3)
-         (range 240 260 3)
-         (range 270 300 3)
-         (range 300 315 2)
-         (range 330 350 2)
-         (range 360 390 2)
-         (range 410 1200))))
+  (into
+   #{} (mapcat #(apply range %))
+   [[30 45 5]
+    [60 80 5]q
+    [90 115 5]
+    [120 135 4]
+    [150 170 4]
+    [180 210 4]
+    [210 225 3]
+    [240 260 3]
+    [270 300 3]
+    [300 315 2]
+    [330 350 2]
+    [360 390 2]
+    [410 1200]]))
 
 (def no-purchase-text "Can't place purchase here")
 
@@ -455,6 +455,9 @@
               :screen-dimensions [0.85 0.9]
               :time {:fn tick-game! :fps 5}}))
 
+(def reset-snapshot @state)
+(def new-game-snapshot (assoc-in @state [::state ::mode] :game)) 
+
 (def report (rl/init-report state))
 
 (def default-text
@@ -698,26 +701,30 @@
     [:p
      "And after a little, no screams were heard again."]]])
 
-(defn handle-init-clicks [game]
-  (fn []
-    (let [index (-> game ::state ::index)]
-      (if (< (inc index) (count init-dialogue))
-        (swap! state #(update-in % [::state ::index] inc))
-        (swap! state #(-> %
-                          (assoc-in [::state ::index] 0)
-                          (assoc-in [::state ::mode] :game)))))))
+(defn handle-init-clicks []
+  (swap!
+   state
+   (fn [game]
+     (let [index (-> game ::state ::index)]
+       (if (< (inc index) (count init-dialogue))
+         (update-in game [::state ::index] inc)
+         new-game-snapshot)))))
 
-(defn handle-end-clicks [game]
-  (fn []
-    (let [index (-> game ::state ::findex)]
-      (if (< (inc index) (count end-dialogue))
-        (swap! state #(update-in % [::state ::findex] inc))
-        (swap! state #(-> %
-                          (assoc-in [::state ::findex] 0)))))))
+(defn handle-end-clicks []
+  (swap!
+   state
+   (fn [game]
+     (let [index (-> game ::state ::findex)]
+       (if (< (inc index) (count end-dialogue))
+         (update-in game [::state ::findex] inc)
+         new-game-snapshot)))))
+ 
+(defn handle-lose-clicks []
+  (reset! state new-game-snapshot))
 
 (defn render-init [game]
   [:div {:style init-style
-         :on-click (handle-init-clicks game)}
+         :on-click handle-init-clicks}
    [:div {:style inner-init-style}
     [:style "p{ padding-bottom: 2em; }"]
     (get init-dialogue (-> game ::state ::index))]
@@ -725,20 +732,25 @@
     "-- CLICK ANYWHERE TO CONTINUE --"]])
 
 (defn render-lose [game]
-  [:div {:style init-style}
+  [:div {:style init-style
+         :on-click handle-lose-clicks}
    [:div {:style inner-init-style}
     [:style "p{ padding-bottom: 2em; }"]
-    "YOU LOSE"]])
+    "YOU LOSE"]
+   [:div {:style click-anywhere-style}
+    "-- CLICK ANYWHERE TO PLAY AGAIN --"]])
 
 (defn render-final [game]
   [:div {:style init-style
-         :on-click (handle-end-clicks game)}
+         :on-click handle-end-clicks}
    [:div {:style inner-init-style}
     [:style "p{ padding-bottom: 2em; }"]
     (get end-dialogue (-> game ::state ::findex))]
-   (when (< (-> game ::state ::findex) (dec (count end-dialogue)))
+   (if (< (-> game ::state ::findex) (dec (count end-dialogue)))
      [:div {:style click-anywhere-style}
-      "-- CLICK ANYWHERE TO CONTINUE --"])])
+      "-- CLICK ANYWHERE TO CONTINUE --"]
+     [:div {:style click-anywhere-style}
+      "-- CLICK ANYWHERE TO PLAY AGAIN --"])])
 
 (defn render-game [game]
   (let [[x y] (rl/game-dims game)
@@ -754,7 +766,7 @@
       :init (render-init game)
       :game (render-game game)
       :lose (render-lose game)
-      :end (render-final game))))
+      :end  (render-final game))))
 
 (def root (. js/document (getElementById "app")))
 

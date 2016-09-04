@@ -1,136 +1,20 @@
 (ns malandragem.core
-  (:require [clojure.core.async :refer [chan put! poll!]]
-            [clojure.data]
-            [reagent.core :as reagent]))
-
-(defonce -state (atom {}))
-
-(def default-container-style
-  {:padding "0"
-   :margin "0"
-   :position "relative"})
-
-(def default-data
-  {:levels {}
-   :state {:level ::none}
-   :time 0})
-
-(def default-tile-style
-  {:background-color "#FFFFFF"
-   :position "absolute"})
-
-(defn get-level [game]
-  (get (:levels game) (:level (:state game))))
+  (:require [malandragem.impl :as impl]
+            [reagent.core :as reagent]
+            [clojure.core.async :refer [poll! chan]]))
 
 (defn data [& {:as data}]
-  (reagent/atom (merge default-data data)))
-
-(defn transform-tile [default-style [t properties] & other-styles]
-  (let [styles (into [default-style (:style properties)]
-                     other-styles)]
-    [:div (assoc properties :style (apply merge styles))]))
-
-(defn tile-location-style [tile-size [x y] [vx vy]]
-  {:left (str (* (- x vx) tile-size) "px")
-   :top (str (* (- y vy) tile-size) "px")})
-
-(defn draw-tile [game coord drawer]
-  (let [draw-fn (:draw drawer)
-        tile-size-style (-> game ::impl ::tile-size-style)
-        tile-size (-> game ::impl ::size)
-        viewport (-> game :state :viewport)
-        tile-loc-st (tile-location-style tile-size coord viewport)]
-    (transform-tile default-tile-style
-                    (draw-fn game coord)
-                    tile-size-style
-                    tile-loc-st)))
-
-(defn draw-floor [game coord]
-  (let [{:keys [tiles]} (get-level game)
-        drawer (get tiles coord (:default tiles))]
-    (draw-tile game coord drawer)))
-
-(defn draw-entities [game level]
-  (let [heiarchy (:entity-heiarchy game)
-        level-entities (:entities level)
-        entities (into [] (mapcat (partial get level-entities)) heiarchy)]
-    (into [:div] (map #(draw-tile game (first %) (second %))) entities)))
-
-(defn get-coords [xi yi dx dy]
-  (for [x (range xi (+ xi dx))
-        y (range yi (+ yi dy))]
-    [x y]))
-
-(defn resize-state [settings]
-  (let [xscrn window.innerWidth
-        yscrn window.innerHeight
-        [sx sy] (:screen-dimensions settings)
-        [xdims ydims] (:tile-dimensions settings)
-        xsize (js/Math.floor (/ (* sx xscrn) xdims))
-        ysize (js/Math.floor (/ (* sy yscrn) ydims))
-        tile-size* (if (< xsize ysize) xsize ysize)
-        tile-size (str tile-size* "px")
-        sx (* tile-size* xdims)
-        sy (* tile-size* ydims)
-        right (- xscrn sx)
-        down (- yscrn sy)]
-    {::box-size [sx sy]
-     ::remaining-space [right down]
-     ::size tile-size*
-     ::tile-size-style
-     {:width tile-size :height tile-size
-      :min-width tile-size :min-height tile-size
-      :max-width tile-size :max-height tile-size}}))
-
-(defn build-default [game]
-  (let [[sx sy] (-> game ::impl ::box-size)
-        box-size {:max-height sy :max-width sx
-                  :height sy :width sx
-                  :min-height sy :min-width sx}]
-    [:div {:style (merge default-container-style box-size)}]))
-
-(defn render [game]
-  (let [settings (:settings game)
-        level (get-level game)
-        [dx dy] (:tile-dimensions settings)
-        [xi yi] (-> game :state :viewport)]
-    (->
-     (build-default game)
-     (into
-      (map (partial draw-floor game))
-      (get-coords xi yi dx dy))
-     (into (draw-entities game level)))))
-
-(defn clear-state! []
-  (doseq [[k v] @-state]
-    (cond
-      (= k :interval) (js/window.clearInterval v)
-      :default (js/window.removeEventListener k v))))
-
-(defn resize-event [game-atom]
-  (fn []
-    (swap!
-     game-atom
-     (fn [game]
-       (assoc game ::impl (resize-state (:settings game)))))))
-
-(defn register-state! [game-atom body]
-  (let [resize-fn (resize-event game-atom)]
-    (resize-fn)
-    (js/window.addEventListener "resize" resize-fn)
-    (swap! -state #(assoc % "resize" resize-fn))))
-
-(defn register-keypresses [keypress-chan]
-  (fn [k]
-    (put! keypress-chan (.-key k))))
+  (let [a (reagent/atom (merge impl/default-data data))]
+    ((impl/resize-event a))
+    a))
 
 (defn wander [game-fn game-atom body]
   (let [time (-> @game-atom :settings :time)]
-    (clear-state!)
-    (register-state! game-atom body)
+    (impl/clear-state!)
+    (impl/register-state! game-atom body)
     (when time
       (let [keypresses (chan)
-            keypress-fn (register-keypresses keypresses)
+            keypress-fn (impl/register-keypresses keypresses)
             _ (js/window.addEventListener "keydown" keypress-fn)
             event (js/window.setInterval
                    (fn []
@@ -138,13 +22,27 @@
                            new-state ((:fn time) old-state keypresses)]
                        (reset! game-atom new-state)))
                    (/ 1000 (:fps time)))]
-        (swap! -state #(assoc % "keydown" keypress-fn))
-       (swap! -state #(assoc % :interval event))))
+        (swap! impl/-state #(assoc % "keydown" keypress-fn))
+        (swap! impl/-state #(assoc % :interval event))))
     (reagent/render-component [game-fn] body)))
 
-(defn game-dims [state] (-> state ::impl ::box-size))
+(def get-level impl/get-level)
 
-(defn remaining-space [state] (-> state ::impl ::remaining-space))
+(defn render [game]
+  (let [settings (:settings game)
+        level (impl/get-level game)
+        [dx dy] (:tile-dimensions settings)
+        [xi yi] (-> game :state :viewport)]
+    (->
+     (impl/build-default game)
+     (into
+      (map (partial impl/draw-floor game))
+      (impl/get-coords xi yi dx dy))
+     (into (impl/draw-entities game level)))))
+
+(defn game-dims [state] (-> state :rl/impl :rl/box-size))
+
+(defn remaining-space [state] (-> state :rl/impl :rl/remaining-space))
 
 (defn px [s] (str s "px"))
 
@@ -207,13 +105,6 @@
       (recur (conj events e))
       events)))
 
-(defn any-obstructions? [entities tiles coord]
-  (or
-   (true? (:solid (get tiles coord)))
-   (some
-    (fn [[k v]] (true? (:solid (get v coord))))
-    tiles)))
-
 (defn mouse-pos [game] (-> game :state :mouse))
 
 (defn update-viewport [game [x y]]
@@ -246,7 +137,7 @@
          entities (get-in game path)
          tiles (:tiles (get-in game level-path*))
          passed? (or solid-pass?
-                     (not (any-obstructions? entities tiles new-coord)))
+                     (not (impl/any-obstructions? entities tiles new-coord)))
          game* (if passed?
                  (move-entity game path entities tag coord new-coord new-entity)
                  game)]
