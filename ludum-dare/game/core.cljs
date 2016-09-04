@@ -773,3 +773,5 @@
 (rl/wander app state root)
 
 (defn on-js-reload [])
+
+(def test)
